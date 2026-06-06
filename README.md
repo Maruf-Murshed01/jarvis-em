@@ -6,7 +6,25 @@ A Node.js + Express + TypeScript REST API with a calculator endpoint, Vitest tes
 
 ---
 
-## What this project has
+## Table of contents
+
+- [Features](#features)
+- [Prerequisites](#prerequisites)
+- [Quick start](#quick-start)
+- [Project structure](#project-structure)
+- [Configuration](#configuration)
+- [Step-by-step setup](#step-by-step-setup)
+- [API reference](#api-reference)
+- [Calculator API](#calculator-api)
+- [PostgreSQL](#postgresql-docker-only)
+- [Testing](#testing)
+- [npm scripts](#npm-scripts)
+- [Architecture](#architecture)
+- [Roadmap](#roadmap)
+
+---
+
+## Features
 
 | Feature | Status |
 |---------|--------|
@@ -15,19 +33,20 @@ A Node.js + Express + TypeScript REST API with a calculator endpoint, Vitest tes
 | Unit + API integration tests | Done |
 | PostgreSQL via Docker Compose | Done |
 | DB connectivity check (`/health/db`, `db:ping`) | Done |
-| Request logging to database | Not yet |
+| DB CRUD smoke test (`test:db`) | Done |
+| Request logging to database | Planned |
 
 ---
 
 ## Prerequisites
 
-Before you start, make sure you have:
+| Requirement | Notes |
+|-------------|-------|
+| **Node.js** v18+ | Runtime for the API and tests |
+| **npm** | Package manager |
+| **Docker Desktop** or Docker Engine | Postgres runs **only** in Docker for this project |
 
-1. **Node.js** (v18+ recommended)
-2. **npm**
-3. **Docker Desktop** (or Docker Engine) — Postgres runs **only** in Docker for this project
-
-Check Docker is running:
+Verify Docker is running:
 
 ```bash
 docker info
@@ -35,69 +54,103 @@ docker info
 
 ---
 
-## Project layout
+## Quick start
+
+```bash
+npm install
+cp .env.example .env
+npm run db:up
+npm run db:ping          # connectivity: SELECT 1
+npm run test:db          # CRUD: insert / select / update / delete
+npm run dev              # http://localhost:3001
+```
+
+In another terminal:
+
+```bash
+curl http://localhost:3001/health/db
+curl -s -X POST http://localhost:3001/calculator \
+  -H "Content-Type: application/json" \
+  -d '{"operation":"add","a":2,"b":3}'
+```
+
+Run the full test suite (no Docker required):
+
+```bash
+npm run typecheck
+npm run test:run
+```
+
+---
+
+## Project structure
 
 ```
 jarvis-em/
-├── docker-compose.yml      # Postgres 16 container
-├── .env.example            # Environment template (commit this)
-├── .env                    # Your local secrets (gitignored — do not commit)
+├── docker-compose.yml       # Postgres 16 container
+├── .env.example             # Environment template (commit this)
+├── .env                     # Local secrets (gitignored — do not commit)
+├── vitest.config.ts         # Default tests (calculator; no DB)
+├── vitest.db.config.ts      # DB integration tests only
 
 src/
-├── server.ts               # Entry point — loads .env, starts server, graceful shutdown
-├── app.ts                  # Express app factory (routes, middleware)
-├── calculator.ts           # Pure math functions (no HTTP, no DB)
+├── server.ts                # Entry — loads .env, starts server, graceful shutdown
+├── app.ts                   # Express app factory (routes, middleware)
+├── calculator.ts            # Pure math functions (no HTTP, no DB)
 ├── db/
-│   ├── pool.ts             # pg Pool singleton (getPool, closePool)
-│   └── ping.ts             # SELECT 1 connectivity check
+│   ├── pool.ts              # pg Pool singleton (getPool, closePool)
+│   ├── ping.ts              # SELECT 1 connectivity check
+│   └── crudSmoke.ts         # Temp-table CRUD smoke test helper
 └── routes/
-    └── calculator.ts       # POST /calculator
+    └── calculator.ts          # POST /calculator
 
 scripts/
-└── db-ping.ts              # CLI smoke test for Postgres
+└── db-ping.ts               # CLI connectivity smoke test
 
 test/
-├── calculator.test.ts      # Unit tests for calculator.ts
-└── calculator.api.test.ts  # Integration tests for POST /calculator
-
-vitest.config.ts            # Discovers test/**/*.test.ts
+├── calculator.test.ts       # Unit tests for calculator.ts
+├── calculator.api.test.ts   # Integration tests for POST /calculator
+└── db.crud.test.ts          # Postgres CRUD integration test
 ```
 
 **Import note:** Source files use `.js` extensions in imports (e.g. `import { createApp } from "./app.js"`) because Node ESM resolves compiled filenames.
 
 ---
 
-## Step-by-step: get the project running
+## Configuration
 
-Follow these steps in order on a fresh clone.
-
-### Step 1 — Install dependencies
-
-```bash
-npm install
-```
-
-### Step 2 — Create your environment file
+Copy the example environment file and adjust if needed:
 
 ```bash
 cp .env.example .env
 ```
 
-Your `.env` should look like this:
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `DATABASE_URL` | PostgreSQL connection string for the Docker container | `postgresql://jarvis:jarvis@localhost:5433/jarvis_em` |
+| `PORT` | HTTP port for the API | `3001` |
+
+Credentials in `DATABASE_URL` must match [`docker-compose.yml`](docker-compose.yml) (`jarvis` / `jarvis` / `jarvis_em`).
+
+---
+
+## Step-by-step setup
+
+Follow these steps in order on a fresh clone.
+
+### 1 — Install dependencies
 
 ```bash
-DATABASE_URL=postgresql://jarvis:jarvis@localhost:5433/jarvis_em
-PORT=3001
+npm install
 ```
 
-| Variable | Purpose |
-|----------|---------|
-| `DATABASE_URL` | Connection string for the Docker Postgres container |
-| `PORT` | HTTP port for the API (default `3001`) |
+### 2 — Create your environment file
 
-Credentials must match `docker-compose.yml` (`jarvis` / `jarvis` / `jarvis_em`).
+```bash
+cp .env.example .env
+```
 
-### Step 3 — Start PostgreSQL (Docker)
+### 3 — Start PostgreSQL
 
 ```bash
 npm run db:up
@@ -110,15 +163,15 @@ docker compose ps
 # STATUS should show: running (healthy)
 ```
 
-The container publishes Postgres on host port **5433** (mapped to `5432` inside the container). Port 5433 is used so this project does not conflict with a system Postgres that may already run on `5432`.
+Postgres is published on host port **5433** (mapped to `5432` inside the container) to avoid conflicting with a system Postgres on `5432`.
 
-Optional — verify Postgres directly inside the container:
+Optional — verify inside the container:
 
 ```bash
 docker compose exec postgres psql -U jarvis -d jarvis_em -c 'SELECT 1'
 ```
 
-### Step 4 — Verify Node can reach Postgres
+### 4 — Verify database connectivity
 
 ```bash
 npm run db:ping
@@ -130,9 +183,24 @@ Expected output:
 Database OK
 ```
 
-If this fails, see [PostgreSQL troubleshooting](#postgresql-troubleshooting).
+### 5 — Verify database read/write (CRUD smoke test)
 
-### Step 5 — Start the API server
+```bash
+npm run test:db
+```
+
+This runs INSERT, SELECT, UPDATE, and DELETE against a **temporary table** on a single pooled connection. Nothing permanent is written to the database.
+
+Expected output:
+
+```
+Test Files  1 passed (1)
+     Tests  1 passed (1)
+```
+
+If either step fails, see [PostgreSQL troubleshooting](#postgresql-troubleshooting).
+
+### 6 — Start the API server
 
 Development (auto-restart on file changes):
 
@@ -153,16 +221,11 @@ Server running on http://localhost:3001
 Database connected
 ```
 
-### Step 6 — Check the API is working
+### 7 — Check the API
 
 ```bash
-# Root
 curl http://localhost:3001/
-
-# App liveness (no DB check)
 curl http://localhost:3001/health
-
-# Database readiness
 curl http://localhost:3001/health/db
 ```
 
@@ -172,7 +235,7 @@ Expected `/health/db` response when Postgres is up:
 { "status": "ok", "database": "connected" }
 ```
 
-### Step 7 — Try the calculator
+### 8 — Try the calculator
 
 ```bash
 curl -s -X POST http://localhost:3001/calculator \
@@ -188,18 +251,18 @@ Expected:
 
 See [Calculator API](#calculator-api) for all operations.
 
-### Step 8 — Run tests
+### 9 — Run application tests
 
 ```bash
 npm run typecheck
 npm run test:run
 ```
 
-Tests do not require Docker — they use `createApp()` with Supertest and never hit `/health/db`.
+These tests do not require Docker — they use `createApp()` with Supertest and never touch Postgres.
 
 ---
 
-## API routes
+## API reference
 
 | Method | Path | Purpose | Response |
 |--------|------|---------|----------|
@@ -259,7 +322,7 @@ One endpoint handles all four operations.
 }
 ```
 
-### Try all four operations
+### Examples
 
 ```bash
 # Add
@@ -296,7 +359,7 @@ curl -s -X POST http://localhost:3001/calculator \
 | divide `10 / 2` | `5` |
 | divide `10 / 0` | `400` with `"error": "Cannot divide by zero"` |
 
-### How it is structured in code
+### Code structure
 
 ```
 POST /calculator
@@ -319,11 +382,13 @@ docker-compose.yml  →  Postgres container (port 5433 on host)
         ↓
    .env DATABASE_URL
         ↓
-   src/db/pool.ts    →  pg Pool singleton
+   src/db/pool.ts    →  pg Pool singleton (getPool, closePool)
         ↓
-   src/db/ping.ts    →  SELECT 1
+   src/db/ping.ts    →  SELECT 1 (connectivity)
+   src/db/crudSmoke.ts → INSERT / SELECT / UPDATE / DELETE (smoke test)
         ↓
-   GET /health/db
+   GET /health/db    →  HTTP readiness probe
+   npm run test:db   →  Vitest CRUD integration test
 ```
 
 ### Database scripts
@@ -334,7 +399,8 @@ docker-compose.yml  →  Postgres container (port 5433 on host)
 | `db:down` | `npm run db:down` | Stop Postgres container |
 | `db:reset` | `npm run db:reset` | Stop and wipe all DB data |
 | `db:logs` | `npm run db:logs` | Tail Postgres container logs |
-| `db:ping` | `npm run db:ping` | Test Node → Postgres without starting the HTTP server |
+| `db:ping` | `npm run db:ping` | CLI connectivity test (`SELECT 1`) |
+| `test:db` | `npm run test:db` | Vitest CRUD smoke test (requires Postgres) |
 
 ### Docker Compose credentials
 
@@ -357,14 +423,16 @@ docker-compose.yml  →  Postgres container (port 5433 on host)
 | Wrong password | `DATABASE_URL` must match `docker-compose.yml` credentials |
 | `/health/db` fails but `db:ping` works | Ensure `server.ts` has `import "dotenv/config"` as the first import |
 | Server crashes when stopping Postgres | The pool handles idle connection errors; restart with `npm run dev` after `db:up` |
+| `test:db` fails but `db:ping` passes | Check Docker is up; CRUD uses a single pooled connection with a temp table — see `src/db/crudSmoke.ts` |
 
-### Verify Postgres is really working (full checklist)
+### Verify Postgres end-to-end
 
 ```bash
 npm run db:up
 docker compose ps                                          # running (healthy)
 docker compose exec postgres psql -U jarvis -d jarvis_em -c 'SELECT 1'
 npm run db:ping                                            # Database OK
+npm run test:db                                            # 1 test passed (CRUD)
 npm run dev                                                # in another terminal
 curl http://localhost:3001/health/db                       # connected
 
@@ -372,13 +440,57 @@ curl http://localhost:3001/health/db                       # connected
 npm run db:down
 curl -s -w "\nHTTP:%{http_code}\n" http://localhost:3001/health/db   # 503 disconnected
 curl http://localhost:3001/health                            # still ok
+npm run db:up                                                # bring DB back
 ```
 
 ---
 
-## npm scripts reference
+## Testing
 
-### App
+Tests use [Vitest](https://vitest.dev/) and are split into two suites so application tests never require Docker.
+
+| Suite | Config | Command | Requires Postgres |
+|-------|--------|---------|-------------------|
+| Application | [`vitest.config.ts`](vitest.config.ts) | `npm run test:run` | No |
+| Database | [`vitest.db.config.ts`](vitest.db.config.ts) | `npm run test:db` | Yes |
+
+```bash
+npm test            # watch mode — application tests only
+npm run test:run    # single run — application tests only
+npm run test:db     # Postgres CRUD integration test
+```
+
+### What is tested
+
+| Module | Test file | Coverage |
+|--------|-----------|----------|
+| `src/calculator.ts` | `test/calculator.test.ts` | add, subtract, multiply, divide, divide-by-zero error |
+| `src/routes/calculator.ts` | `test/calculator.api.test.ts` | POST /calculator — all 4 ops, divide-by-zero 400 |
+| `src/db/crudSmoke.ts` | `test/db.crud.test.ts` | INSERT, SELECT, UPDATE, DELETE on a temp table |
+
+API tests use [Supertest](https://github.com/ladjs/supertest) against `createApp()` — no running server required.
+
+The DB test uses a real Postgres instance via `getPool()`. It creates a connection-scoped temp table, runs full CRUD, and closes the pool in `afterAll`.
+
+### Adding tests for a new module
+
+1. Add source in `src/myModule.ts`
+2. Add tests in `test/myModule.test.ts`:
+
+```typescript
+import { describe, it, expect } from "vitest";
+import { myFn } from "../src/myModule.js";
+```
+
+3. Run `npm test`
+
+For database integration tests, name the file `test/db.*.test.ts` so it is picked up by `vitest.db.config.ts` and excluded from the default suite.
+
+---
+
+## npm scripts
+
+### Application
 
 | Script | Command | Purpose |
 |--------|---------|---------|
@@ -396,52 +508,22 @@ curl http://localhost:3001/health                            # still ok
 | `db:down` | `npm run db:down` | Stop Postgres container |
 | `db:reset` | `npm run db:reset` | Stop and wipe DB volume |
 | `db:logs` | `npm run db:logs` | Tail Postgres logs |
-| `db:ping` | `npm run db:ping` | CLI `SELECT 1` smoke test |
+| `db:ping` | `npm run db:ping` | CLI `SELECT 1` connectivity test |
+| `test:db` | `npm run test:db` | Vitest CRUD smoke test |
 
 ### Tests
 
 | Script | Command | Purpose |
 |--------|---------|---------|
-| `test` | `npm test` | Vitest watch mode |
-| `test:run` | `npm run test:run` | Run all tests once |
+| `test` | `npm test` | Vitest watch mode (application tests) |
+| `test:run` | `npm run test:run` | Run application tests once |
+| `test:db` | `npm run test:db` | Run database integration tests once |
 
 Server URL: `http://localhost:3001` (override with `PORT=4000 npm start`).
 
 ---
 
-## Testing
-
-Tests live in [`test/`](test/) and run with [Vitest](https://vitest.dev/). Config is in [`vitest.config.ts`](vitest.config.ts) — it discovers all `test/**/*.test.ts` files automatically.
-
-```bash
-npm test            # watch mode — re-runs on save
-npm run test:run    # single run
-```
-
-### What is tested
-
-| Module | Test file | Coverage |
-|--------|-----------|----------|
-| `src/calculator.ts` | `test/calculator.test.ts` | add, subtract, multiply, divide, divide-by-zero error |
-| `src/routes/calculator.ts` | `test/calculator.api.test.ts` | POST /calculator — all 4 ops, divide-by-zero 400 |
-
-API tests use [Supertest](https://github.com/ladjs/supertest) against `createApp()` — no running server or database required.
-
-### Adding tests for a new module
-
-1. Add source in `src/myModule.ts`
-2. Add tests in `test/myModule.test.ts`:
-
-```typescript
-import { describe, it, expect } from "vitest";
-import { myFn } from "../src/myModule.js";
-```
-
-3. Run `npm test`
-
----
-
-## Architecture overview
+## Architecture
 
 ```mermaid
 flowchart TB
@@ -455,6 +537,11 @@ flowchart TB
     CalcLogic[calculator.ts]
     Pool[db/pool.ts]
     Ping[db/ping.ts]
+    CrudSmoke[db/crudSmoke.ts]
+  end
+  subgraph tests [Tests]
+    AppTests[calculator tests]
+    DbTests[db.crud.test.ts]
   end
   subgraph docker [Docker]
     PG[(PostgreSQL 16)]
@@ -463,23 +550,31 @@ flowchart TB
   Server --> App
   App --> CalcRoute --> CalcLogic
   App --> Ping --> Pool
+  CrudSmoke --> Pool
+  DbTests --> CrudSmoke
   Pool --> PG
 ```
 
 **Layers:**
 
-- **`server.ts`** — boots the app, loads `.env`, closes the DB pool on shutdown
-- **`app.ts`** — wires routes and middleware; exported as `createApp()` for tests
-- **`routes/`** — HTTP handlers only
-- **`calculator.ts`** — pure domain logic
-- **`db/`** — PostgreSQL connection and health check
+| Layer | Responsibility |
+|-------|----------------|
+| `server.ts` | Boots the app, loads `.env`, closes the DB pool on shutdown |
+| `app.ts` | Wires routes and middleware; exported as `createApp()` for tests |
+| `routes/` | HTTP handlers only |
+| `calculator.ts` | Pure domain logic |
+| `db/pool.ts` | Shared PostgreSQL connection pool |
+| `db/ping.ts` | Connectivity health check (`SELECT 1`) |
+| `db/crudSmoke.ts` | Disposable CRUD verification for tests and manual checks |
 
 ---
 
-## What's next
+## Roadmap
 
 Planned follow-ups (not implemented yet):
 
 1. SQL migration for a `request_logs` table
 2. Middleware to save every GET/POST request to Postgres
 3. Reuse `getPool()` from `src/db/pool.ts` for persistence
+
+Phase 1 (CRUD smoke test) is complete. Phase 2 will add the first permanent schema and request logging middleware.
