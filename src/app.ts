@@ -1,4 +1,5 @@
 import express, { type Request, type Response } from "express";
+import { pingDb } from "./db/ping.js";
 import { calculatorRouter } from "./routes/calculator.js";
 
 export function createApp(): express.Express {
@@ -12,6 +13,15 @@ export function createApp(): express.Express {
 
   app.get("/health", (_req: Request, res: Response) => {
     res.json({ status: "ok" });
+  });
+
+  app.get("/health/db", async (_req: Request, res: Response) => {
+    const result = await pingDb();
+    if (result.ok) {
+      res.json({ status: "ok", database: "connected" });
+      return;
+    }
+    res.status(503).json({ database: "disconnected", error: result.error });
   });
 
   app.use("/calculator", calculatorRouter);
