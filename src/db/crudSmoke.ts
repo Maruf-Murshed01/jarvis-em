@@ -1,8 +1,6 @@
 import { getPool } from "./pool.js";
 
-export async function runCrudSmoke(): Promise<
-  { ok: true } | { ok: false; error: string }
-> {
+export async function runCrudSmoke(): Promise<{ ok: true } | { ok: false; error: string }> {
   const client = await getPool().connect();
   try {
     await client.query(

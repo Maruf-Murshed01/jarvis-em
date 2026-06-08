@@ -1,11 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  add,
-  subtract,
-  multiply,
-  divide,
-  DivisionByZeroError,
-} from "../src/calculator.js";
+import { add, subtract, multiply, divide, DivisionByZeroError } from "../src/calculator.js";
 
 describe("add", () => {
   it("adds two numbers", () => {
