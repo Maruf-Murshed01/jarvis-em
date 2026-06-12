@@ -1,4 +1,4 @@
-import { Router, type Request, type Response } from "express";
+import { Router } from "express";
 import { add, subtract, multiply, divide, DivisionByZeroError } from "../calculator.js";
 import { getAllResults, getResultById, insertResult } from "../db/calculationResults.js";
 
@@ -27,9 +27,9 @@ function isValidRequest(body: unknown): body is CalculatorRequestBody {
   return validOps.includes(operation as string) && typeof a === "number" && typeof b === "number";
 }
 
-function isValidId(id: string): id is `${number}` {
-  const num = Number(id);
-  return Number.isInteger(num) && num > 0;
+function isValidId(id: string): boolean {
+  const idNumber = Number(id);
+  return Number.isInteger(idNumber) && idNumber > 0;
 }
 
 async function saveResult(result: number, shouldSave: boolean): Promise<number | undefined> {
