@@ -82,15 +82,15 @@ Read paths (`GET /calculator/results` and `GET /calculator/results/:id`) skip th
 
 ### Layers and responsibilities
 
-| Layer | Files | Role |
-| ----- | ----- | ---- |
-| Entry | `src/server.ts` | Process entry, graceful shutdown, closes the connection pool |
-| HTTP shell | `src/app.ts` | Express setup, health routes, mounts calculator router; exported for tests |
-| Routes | `src/routes/calculator.ts` | Request validation, HTTP status codes, calls math + DB |
-| Domain | `src/calculator.ts` | Pure arithmetic; no I/O |
-| Database | `src/db/pool.ts`, `calculationResults.ts`, `ping.ts` | Connection pool, CRUD queries, connectivity checks |
-| Schema | `db/migrations/` | SQL applied by `npm run db:migrate` |
-| Infrastructure | `docker-compose.yml` | Local Postgres for development |
+| Layer          | Files                                                | Role                                                                       |
+| -------------- | ---------------------------------------------------- | -------------------------------------------------------------------------- |
+| Entry          | `src/server.ts`                                      | Process entry, graceful shutdown, closes the connection pool               |
+| HTTP shell     | `src/app.ts`                                         | Express setup, health routes, mounts calculator router; exported for tests |
+| Routes         | `src/routes/calculator.ts`                           | Request validation, HTTP status codes, calls math + DB                     |
+| Domain         | `src/calculator.ts`                                  | Pure arithmetic; no I/O                                                    |
+| Database       | `src/db/pool.ts`, `calculationResults.ts`, `ping.ts` | Connection pool, CRUD queries, connectivity checks                         |
+| Schema         | `db/migrations/`                                     | SQL applied by `npm run db:migrate`                                        |
+| Infrastructure | `docker-compose.yml`                                 | Local Postgres for development                                             |
 
 ### What connects to what
 

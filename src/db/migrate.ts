@@ -3,7 +3,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getPool } from "./pool.js";
 
-const migrationsDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../db/migrations");
+const migrationsDir = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../../db/migrations",
+);
 
 export type MigrationResult = { ok: true } | { ok: false; error: string };
 
