@@ -5,5 +5,6 @@ export default defineConfig({
     environment: "node",
     include: ["test/db.*.test.ts"],
     globals: false,
+    fileParallelism: false,
   },
 });

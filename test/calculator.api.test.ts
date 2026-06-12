@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import supertest from "supertest";
 import { createApp } from "../src/app.js";
 
-const app = createApp();
+const app = createApp({ enableResultPersistence: false });
 
 describe("POST /calculator", () => {
   it("adds two numbers", async () => {
@@ -12,6 +12,7 @@ describe("POST /calculator", () => {
       .expect(200);
 
     expect(res.body.result).toBe(5);
+    expect(res.body.id).toBeUndefined();
   });
 
   it("subtracts two numbers", async () => {
@@ -48,5 +49,19 @@ describe("POST /calculator", () => {
       .expect(400);
 
     expect(res.body.error).toBe("Cannot divide by zero");
+  });
+});
+
+describe("GET /calculator/results (persistence disabled)", () => {
+  it("returns an empty list", async () => {
+    const res = await supertest(app).get("/calculator/results").expect(200);
+
+    expect(res.body.results).toEqual([]);
+  });
+
+  it("returns 404 for a result by id", async () => {
+    const res = await supertest(app).get("/calculator/results/1").expect(404);
+
+    expect(res.body.error).toBe("Not found");
   });
 });

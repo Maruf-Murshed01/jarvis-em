@@ -1,186 +1,408 @@
 # Jarvis-em
 
-Express 5 + TypeScript REST API — calculator endpoint, strict type/lint tooling, Vitest tests, PostgreSQL via Docker.
+TypeScript REST API built with Express 5. Exposes a calculator endpoint and persists successful calculation results to PostgreSQL.
 
-**Stack:** TypeScript · Express 5 · Vitest · ESLint · Prettier · PostgreSQL (`pg`) · Docker Compose · GitHub Actions
+## Table of contents
 
----
+- [Overview](#overview)
+- [Tech stack](#tech-stack)
+- [Prerequisites](#prerequisites)
+- [Getting started](#getting-started)
+- [Configuration](#configuration)
+- [API reference](#api-reference)
+- [Database](#database)
+- [Development](#development)
+- [Project structure](#project-structure)
+- [Troubleshooting](#troubleshooting)
+- [License](#license)
 
-## Features
+## Overview
 
-| Feature                                     | Status  |
-| ------------------------------------------- | ------- |
-| REST API + calculator                       | Done    |
-| Unit + API tests (Vitest, Supertest)        | Done    |
-| PostgreSQL (Docker) + health checks         | Done    |
-| Strict TS (`tsconfig` base / build / check) | Done    |
-| ESLint + Prettier + `npm run check`         | Done    |
-| CI (`.github/workflows/ci.yml`)             | Done    |
-| Request logging to DB                       | Planned |
+Jarvis-em is a small, production-style API service with:
 
----
+- A **calculator** endpoint supporting `add`, `subtract`, `multiply`, and `divide`
+- **Result persistence** — successful calculations are stored as `{ id, result }` in Postgres
+- **Health checks** — liveness (`/health`) and database connectivity (`/health/db`)
+- **Quality tooling** — strict TypeScript, ESLint, Prettier, Vitest, and GitHub Actions CI
+
+Persistence is intentionally minimal: only the numeric result is saved on success. Failed requests and non-calculator traffic are not stored.
+
+## Tech stack
+
+| Layer         | Technology           |
+| ------------- | -------------------- |
+| Runtime       | Node.js 18+          |
+| Language      | TypeScript (strict)  |
+| HTTP          | Express 5            |
+| Database      | PostgreSQL 16 (`pg`) |
+| Local DB      | Docker Compose       |
+| Testing       | Vitest, Supertest    |
+| Lint / format | ESLint, Prettier     |
+| CI            | GitHub Actions       |
 
 ## Prerequisites
 
-- **Node.js** 18+ and **npm**
-- **Docker** — Postgres runs in Docker only (`docker info` to verify)
+- [Node.js](https://nodejs.org/) 18 or later
+- [npm](https://www.npmjs.com/)
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (for PostgreSQL)
 
----
-
-## Quick start
+Verify Docker is running:
 
 ```bash
+docker info
+```
+
+## Getting started
+
+### 1. Clone and install
+
+```bash
+git clone <repository-url>
+cd Jarvis-em
 npm install
 cp .env.example .env
-npm run check          # typecheck + lint + format + tests (no Docker)
-npm run db:up
-npm run db:ping        # SELECT 1
-npm run test:db        # CRUD smoke test
-npm run dev            # http://localhost:3001
 ```
+
+### 2. Run the quality gate (no Docker required)
 
 ```bash
-curl http://localhost:3001/health/db
+npm run check
+```
+
+Runs typecheck, lint, format check, and unit/API tests.
+
+### 3. Start the database
+
+```bash
+npm run db:up        # starts Postgres and waits until healthy
+npm run db:migrate   # applies SQL migrations
+npm run db:ping      # expect: Database OK
+```
+
+### 4. Run DB integration tests (optional)
+
+```bash
+npm run test:db
+```
+
+### 5. Start the API
+
+```bash
+npm run dev
+```
+
+The server listens on `http://localhost:3001` by default.
+
+### 6. Send a request
+
+```bash
+# Calculate
 curl -s -X POST http://localhost:3001/calculator \
   -H "Content-Type: application/json" \
-  -d '{"operation":"add","a":2,"b":3}'
+  -d '{"operation":"add","a":2,"b":5}'
+
+# List stored results
+curl -s http://localhost:3001/calculator/results
+
+# Fetch result by id
+curl -s http://localhost:3001/calculator/results/1
 ```
 
----
+Inspect rows directly in Postgres:
 
-## Scripts
-
-| Script                           | Purpose                                                  |
-| -------------------------------- | -------------------------------------------------------- |
-| `check`                          | **Main gate** — typecheck, lint, format check, app tests |
-| `dev` / `start`                  | Run API (`tsx watch` / `tsx`)                            |
-| `build` / `start:dist`           | Compile `src/` → `dist/`, run compiled                   |
-| `typecheck`                      | `tsc` all `.ts` files (src, test, scripts, configs)      |
-| `lint` / `lint:fix`              | ESLint (type-aware)                                      |
-| `format` / `format:check`        | Prettier write / check                                   |
-| `test` / `test:run`              | Vitest watch / run (app tests, no Docker)                |
-| `test:db`                        | DB CRUD integration test (needs Postgres)                |
-| `db:up` / `db:down` / `db:reset` | Start / stop / wipe Postgres                             |
-| `db:ping` / `db:logs`            | CLI connectivity / container logs                        |
-
-Default URL: `http://localhost:3001` — override with `PORT`.
-
----
-
-## API
-
-| Method | Path          | Response                                               |
-| ------ | ------------- | ------------------------------------------------------ |
-| GET    | `/`           | `{ "message": "Jarvis-em API" }`                       |
-| GET    | `/health`     | `{ "status": "ok" }` — liveness, no DB                 |
-| GET    | `/health/db`  | `{ "status": "ok", "database": "connected" }` or `503` |
-| POST   | `/calculator` | See below                                              |
-
-**POST `/calculator`**
-
-```json
-{ "operation": "add", "a": 2, "b": 3 }
+```bash
+docker compose exec postgres psql -U jarvis -d jarvis_em \
+  -c "SELECT id, result FROM calculation_results ORDER BY id;"
 ```
-
-| `operation` | `"add"` · `"subtract"` · `"multiply"` · `"divide"` |
-
-**200:** `{ "operation", "a", "b", "result" }` · **400:** `{ "error": "Cannot divide by zero" }` · **400:** invalid body
-
----
 
 ## Configuration
 
-```bash
-cp .env.example .env
+Environment variables are loaded from `.env` (see `.env.example`).
+
+| Variable       | Default                                               | Description                  |
+| -------------- | ----------------------------------------------------- | ---------------------------- |
+| `PORT`         | `3001`                                                | HTTP port for the API        |
+| `DATABASE_URL` | `postgresql://jarvis:jarvis@localhost:5433/jarvis_em` | PostgreSQL connection string |
+
+Docker Compose Postgres defaults:
+
+| Setting   | Value         |
+| --------- | ------------- |
+| Image     | `postgres:16` |
+| Host port | `5433`        |
+| User      | `jarvis`      |
+| Password  | `jarvis`      |
+| Database  | `jarvis_em`   |
+
+If you change the Compose port or credentials, update `DATABASE_URL` to match.
+
+## API reference
+
+Base URL: `http://localhost:3001`
+
+### Health
+
+#### `GET /`
+
+Service metadata.
+
+**Response `200`**
+
+```json
+{ "message": "Jarvis-em API" }
 ```
 
-| Variable       | Default                                               | Notes                           |
-| -------------- | ----------------------------------------------------- | ------------------------------- |
-| `DATABASE_URL` | `postgresql://jarvis:jarvis@localhost:5433/jarvis_em` | Must match `docker-compose.yml` |
-| `PORT`         | `3001`                                                | HTTP port                       |
+#### `GET /health`
 
-Postgres: image `postgres:16`, host port **5433**, user/password/db `jarvis` / `jarvis` / `jarvis_em`.
+Liveness probe. Does not check the database.
 
----
+**Response `200`**
+
+```json
+{ "status": "ok" }
+```
+
+#### `GET /health/db`
+
+Readiness probe. Verifies PostgreSQL connectivity.
+
+**Response `200`**
+
+```json
+{ "status": "ok", "database": "connected" }
+```
+
+**Response `503`**
+
+```json
+{ "database": "disconnected", "error": "<message>" }
+```
+
+### Calculator
+
+#### `POST /calculator`
+
+Perform a calculation. On success, the numeric result is persisted and an `id` is returned.
+
+**Request body**
+
+```json
+{
+  "operation": "add",
+  "a": 2,
+  "b": 5
+}
+```
+
+| Field       | Type     | Values                                  |
+| ----------- | -------- | --------------------------------------- |
+| `operation` | `string` | `add`, `subtract`, `multiply`, `divide` |
+| `a`         | `number` | First operand                           |
+| `b`         | `number` | Second operand                          |
+
+**Response `200`**
+
+```json
+{
+  "operation": "add",
+  "a": 2,
+  "b": 5,
+  "result": 7,
+  "id": 1
+}
+```
+
+**Response `400` — invalid body**
+
+```json
+{ "error": "Invalid request body" }
+```
+
+**Response `400` — divide by zero**
+
+```json
+{ "error": "Cannot divide by zero" }
+```
+
+If the database insert fails, the API still returns the calculation result but omits `id` (fail-open).
+
+#### `GET /calculator/results`
+
+List all stored calculation results, ordered by `id` ascending.
+
+**Response `200`**
+
+```json
+{
+  "results": [
+    { "id": 1, "result": 7 },
+    { "id": 2, "result": 500 }
+  ]
+}
+```
+
+#### `GET /calculator/results/:id`
+
+Fetch a single stored result.
+
+**Response `200`**
+
+```json
+{ "id": 1, "result": 7 }
+```
+
+**Response `400` — invalid id**
+
+```json
+{ "error": "Invalid id" }
+```
+
+**Response `404` — not found**
+
+```json
+{ "error": "Not found" }
+```
+
+## Database
+
+### Migrations
+
+SQL migrations live in `db/migrations/` and are applied with:
+
+```bash
+npm run db:migrate
+```
+
+Migrations are idempotent (`CREATE TABLE IF NOT EXISTS`). The migrate script waits for Postgres to accept connections before running.
+
+To reset the database completely:
+
+```bash
+npm run db:reset
+npm run db:up
+npm run db:migrate
+```
+
+### Schema: `calculation_results`
+
+| Column   | Type               | Description                  |
+| -------- | ------------------ | ---------------------------- |
+| `id`     | `BIGSERIAL`        | Primary key (auto-increment) |
+| `result` | `DOUBLE PRECISION` | Stored calculation result    |
+
+Example data:
+
+```
+ id | result
+----+--------
+  1 |      7
+  2 |    500
+```
+
+### Persistence behavior
+
+| Event                         | Stored? |
+| ----------------------------- | ------- |
+| Successful `POST /calculator` | Yes     |
+| Invalid request body          | No      |
+| Divide by zero                | No      |
+| Any `GET` request             | No      |
+
+## Development
+
+### NPM scripts
+
+| Script               | Description                                           |
+| -------------------- | ----------------------------------------------------- |
+| `npm run dev`        | Start API with hot reload (`tsx watch`)               |
+| `npm run start`      | Start API without watch                               |
+| `npm run build`      | Compile `src/` to `dist/`                             |
+| `npm run start:dist` | Run compiled output from `dist/`                      |
+| `npm run check`      | Typecheck, lint, format check, and app tests          |
+| `npm run test`       | Vitest in watch mode                                  |
+| `npm run test:run`   | Run app tests once (no Docker)                        |
+| `npm run test:db`    | Run DB integration tests (requires Docker + Postgres) |
+| `npm run db:up`      | Start Postgres (`docker compose up -d --wait`)        |
+| `npm run db:down`    | Stop Postgres containers                              |
+| `npm run db:reset`   | Stop Postgres and remove the data volume              |
+| `npm run db:migrate` | Apply SQL migrations                                  |
+| `npm run db:ping`    | Verify database connectivity                          |
+| `npm run db:logs`    | Tail Postgres container logs                          |
+| `npm run lint`       | Run ESLint                                            |
+| `npm run format`     | Format with Prettier                                  |
+
+### Testing
+
+| Suite          | Command            | Docker | Scope                                      |
+| -------------- | ------------------ | ------ | ------------------------------------------ |
+| App            | `npm run test:run` | No     | Calculator logic and HTTP (Supertest)      |
+| DB integration | `npm run test:db`  | Yes    | Postgres CRUD smoke and result persistence |
+
+App tests use `createApp({ enableResultPersistence: false })` so CI and local checks do not require a database.
+
+DB tests run sequentially (`fileParallelism: false`) to avoid connection pool conflicts.
+
+Add tests:
+
+- App-level: `test/<name>.test.ts`
+- DB-level: `test/db.<name>.test.ts`
+
+### CI
+
+GitHub Actions runs `npm run check` on push and pull requests to `main`. DB integration tests are run locally.
+
+### Architecture
+
+```
+Client
+  └─ express.json()
+       └─ routes
+            ├─ /, /health, /health/db
+            └─ /calculator
+                 ├─ calculator.ts        (pure math)
+                 └─ calculationResults.ts (persist on success)
+                      └─ pool.ts → PostgreSQL
+```
+
+| Module              | Responsibility                              |
+| ------------------- | ------------------------------------------- |
+| `src/server.ts`     | Process entry, graceful shutdown            |
+| `src/app.ts`        | Express wiring; exported for tests          |
+| `src/calculator.ts` | Domain logic (no HTTP or DB)                |
+| `src/routes/`       | HTTP handlers and persistence orchestration |
+| `src/db/`           | Pool, migrations, queries, health checks    |
 
 ## Project structure
 
 ```
+db/migrations/          SQL schema migrations
+scripts/                CLI helpers (migrate, db ping)
 src/
-  server.ts          # Entry, graceful shutdown
-  app.ts             # createApp() — routes + middleware
-  calculator.ts      # Pure math logic
-  routes/calculator.ts
-  db/pool.ts         # pg Pool singleton
-  db/ping.ts         # SELECT 1
-  db/crudSmoke.ts    # Temp-table CRUD helper
-test/                # Vitest (app + db.*.test.ts)
-scripts/db-ping.ts   # CLI DB check
-tsconfig.json        # Shared compiler rules
-tsconfig.build.json  # src/ → dist/
-tsconfig.check.json  # Full-repo typecheck
-eslint.config.js     # ESLint flat config
-.github/workflows/ci.yml
+  server.ts             Application entry point
+  app.ts                Express app factory
+  calculator.ts         Calculator domain logic
+  routes/calculator.ts  Calculator HTTP routes
+  db/                   Database access layer
+test/                   Vitest test suites
+.github/workflows/      CI pipeline
+docker-compose.yml      Local PostgreSQL
 ```
 
-Imports use `.js` extensions (Node ESM / `NodeNext`).
-
----
-
-## Testing
-
-| Suite            | Command            | Docker |
-| ---------------- | ------------------ | ------ |
-| App (unit + API) | `npm run test:run` | No     |
-| DB CRUD          | `npm run test:db`  | Yes    |
-
-App tests use Supertest against `createApp()` — no running server. DB tests use a real pooled connection and a temp table.
-
-New app tests: `test/myModule.test.ts` · DB tests: `test/db.*.test.ts` (picked up by `vitest.db.config.ts`).
-
----
-
-## Tooling
-
-- **TypeScript** — strict; `typecheck` covers src, test, scripts, vitest configs; `build` emits `dist/` from `src/` only
-- **ESLint** — `typescript-eslint` strict type-checked rules
-- **Prettier** — project-wide formatting; no conflict with ESLint
-- **CI** — `npm run check` on push/PR to `main` (DB tests stay local)
-
-Open in Cursor/VS Code — install recommended extensions (ESLint, Prettier); format-on-save enabled via `.vscode/settings.json`.
-
----
-
-## Architecture
-
-```
-Client → app.ts → routes/calculator.ts → calculator.ts
-                 → db/ping.ts → db/pool.ts → PostgreSQL (Docker)
-Tests  → Supertest (app) · crudSmoke (db)
-```
-
-| Layer           | Role                            |
-| --------------- | ------------------------------- |
-| `server.ts`     | Boot, `.env`, pool shutdown     |
-| `app.ts`        | HTTP wiring; exported for tests |
-| `routes/`       | Request/response only           |
-| `calculator.ts` | Domain logic, no HTTP/DB        |
-| `db/`           | Pool, connectivity, CRUD smoke  |
-
----
+Source imports use `.js` extensions (Node ESM / `NodeNext`).
 
 ## Troubleshooting
 
-| Problem                       | Fix                                                               |
-| ----------------------------- | ----------------------------------------------------------------- |
-| Docker not running            | Start Docker Desktop → `npm run db:up`                            |
-| `db:ping` fails after `db:up` | Wait for `healthy` in `docker compose ps`                         |
-| Port 5433 in use              | Change Compose host port + `DATABASE_URL`                         |
-| `/health/db` 503              | Check `DATABASE_URL`, Postgres up, `dotenv` loaded in `server.ts` |
+| Symptom                                         | Likely cause                    | Fix                                                 |
+| ----------------------------------------------- | ------------------------------- | --------------------------------------------------- |
+| `docker compose` fails                          | Docker not running or paused    | Start or unpause Docker Desktop                     |
+| `ECONNREFUSED` on port 5433                     | Postgres not started            | `npm run db:up`                                     |
+| `read ECONNRESET` right after `db:up`           | Postgres still starting         | `db:up` uses `--wait`; retry `npm run db:migrate`   |
+| `relation "calculation_results" does not exist` | Migrations not applied          | `npm run db:migrate`                                |
+| `/health/db` returns 503                        | Bad `DATABASE_URL` or DB down   | Check `.env` and `docker compose ps`                |
+| No rows in `calculation_results`                | Only successes are stored       | Send valid `POST /calculator` requests              |
+| `Calculation result persistence failed` in logs | DB write failed                 | API still responds; fix DB connectivity             |
+| App tests hit the database                      | Persistence enabled in test app | Use `createApp({ enableResultPersistence: false })` |
 
----
+## License
 
-## Roadmap
-
-1. SQL migration — `request_logs` table
-2. Middleware — persist GET/POST requests via `getPool()`
+ISC — see [`package.json`](package.json).
