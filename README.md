@@ -5,6 +5,7 @@ TypeScript REST API built with Express 5. Exposes a calculator endpoint and pers
 ## Table of contents
 
 - [Overview](#overview)
+- [Architecture](#architecture)
 - [Tech stack](#tech-stack)
 - [Prerequisites](#prerequisites)
 - [Getting started](#getting-started)
@@ -26,6 +27,78 @@ Jarvis-em is a small, production-style API service with:
 - **Quality tooling** — strict TypeScript, ESLint, Prettier, Vitest, and GitHub Actions CI
 
 Persistence is intentionally minimal: only the numeric result is saved on success. Failed requests and non-calculator traffic are not stored.
+
+## Architecture
+
+Jarvis-em is a small layered API: Express handles HTTP, route handlers orchestrate validation and persistence, pure functions do the math, and a thin database layer talks to PostgreSQL.
+
+### How it fits together
+
+```
+┌─────────────┐     HTTP      ┌──────────────────────────────────────────┐
+│   Client    │ ────────────► │  server.ts                               │
+│ (curl, app) │               │  loads .env, starts Express, shuts down DB │
+└─────────────┘               └──────────────────┬───────────────────────┘
+                                                 │
+                                                 ▼
+                              ┌──────────────────────────────────────────┐
+                              │  app.ts (createApp)                      │
+                              │  express.json() + route wiring           │
+                              └──────────────────┬───────────────────────┘
+                                                 │
+           ┌─────────────────────────────────────┼─────────────────────────────┐
+           │                                     │                             │
+           ▼                                     ▼                             ▼
+    GET /, /health                    GET /health/db              /calculator/*
+    (in app.ts)                       pingDb()                    routes/calculator.ts
+                                      via pool.ts                 │
+                                                                  │
+                    ┌─────────────────────────────────────────────┼──────────────────┐
+                    │                                             │                  │
+                    ▼                                             ▼                  ▼
+             POST /calculator                          GET /results        GET /results/:id
+             validate body                             list rows           fetch one row
+             calculator.ts (math)                      calculationResults  calculationResults
+             save on success ─────────────────────────► insertResult / getAll / getById
+                                                                  │
+                                                                  ▼
+                                                         pool.ts (pg Pool)
+                                                                  │
+                                                                  ▼
+                                              PostgreSQL — calculation_results
+                                              (id, result)
+```
+
+### Request lifecycle: calculate and store
+
+1. **Boot** — `server.ts` loads environment variables, builds the app with `createApp()`, and listens on `PORT`. On startup it pings the database and logs whether Postgres is reachable.
+2. **Parse** — `express.json()` turns the request body into a JavaScript object.
+3. **Validate** — The calculator router checks that `operation` is one of `add`, `subtract`, `multiply`, or `divide`, and that `a` and `b` are numbers. Bad input returns `400` without touching the database.
+4. **Calculate** — `src/calculator.ts` runs the operation. It has no knowledge of HTTP or Postgres. Division by zero throws `DivisionByZeroError`, which the router maps to `400`.
+5. **Persist** — On success, `insertResult()` writes only the numeric `result` to `calculation_results` and returns the new row `id`. If persistence is disabled (tests) or the insert fails, the API still returns the calculation but may omit `id` (fail-open).
+6. **Respond** — JSON includes `operation`, `a`, `b`, `result`, and optionally `id`.
+
+Read paths (`GET /calculator/results` and `GET /calculator/results/:id`) skip the calculator and query Postgres directly through the same DB layer.
+
+### Layers and responsibilities
+
+| Layer | Files | Role |
+| ----- | ----- | ---- |
+| Entry | `src/server.ts` | Process entry, graceful shutdown, closes the connection pool |
+| HTTP shell | `src/app.ts` | Express setup, health routes, mounts calculator router; exported for tests |
+| Routes | `src/routes/calculator.ts` | Request validation, HTTP status codes, calls math + DB |
+| Domain | `src/calculator.ts` | Pure arithmetic; no I/O |
+| Database | `src/db/pool.ts`, `calculationResults.ts`, `ping.ts` | Connection pool, CRUD queries, connectivity checks |
+| Schema | `db/migrations/` | SQL applied by `npm run db:migrate` |
+| Infrastructure | `docker-compose.yml` | Local Postgres for development |
+
+### What connects to what
+
+- **Tests without Docker** — `createApp({ enableResultPersistence: false })` skips all DB calls; calculator math and HTTP behavior are tested with Supertest.
+- **Tests with Docker** — DB integration tests use a real Postgres instance and exercise `insertResult`, `getAllResults`, and `getResultById` end to end.
+- **Health** — `/health` is a simple liveness check (no DB). `/health/db` uses the same `pingDb()` helper as startup and migration scripts.
+
+Persistence is deliberately narrow: operands and operation names are not stored—only the successful numeric result.
 
 ## Tech stack
 
@@ -351,26 +424,7 @@ Add tests:
 
 GitHub Actions runs `npm run check` on push and pull requests to `main`. DB integration tests are run locally.
 
-### Architecture
-
-```
-Client
-  └─ express.json()
-       └─ routes
-            ├─ /, /health, /health/db
-            └─ /calculator
-                 ├─ calculator.ts        (pure math)
-                 └─ calculationResults.ts (persist on success)
-                      └─ pool.ts → PostgreSQL
-```
-
-| Module              | Responsibility                              |
-| ------------------- | ------------------------------------------- |
-| `src/server.ts`     | Process entry, graceful shutdown            |
-| `src/app.ts`        | Express wiring; exported for tests          |
-| `src/calculator.ts` | Domain logic (no HTTP or DB)                |
-| `src/routes/`       | HTTP handlers and persistence orchestration |
-| `src/db/`           | Pool, migrations, queries, health checks    |
+See [Architecture](#architecture) for how these pieces connect at runtime.
 
 ## Project structure
 
